@@ -1,0 +1,43 @@
+# Dependencies
+/vendor/
+/node_modules/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+!.env.testing.example
+
+# Runtime storage
+/storage/logs/*
+!/storage/logs/.gitkeep
+/storage/attachments/*
+!/storage/attachments/.gitkeep
+/storage/documents/*
+!/storage/documents/.gitkeep
+/storage/record-attachments/*
+/storage/backups/*
+/storage/returns/*
+/storage/invoices/*
+!/storage/returns/.gitkeep
+/storage/cache/*
+!/storage/cache/.gitkeep
+
+# Build / tooling artifacts
+/.phpunit.cache/
+/.phpunit.result.cache
+/coverage/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Throwaway host probe (never deploy or commit this)
+/host-check.php
+
+# Client sample documents (real client data — not for the repo)
+/sample-docs/
