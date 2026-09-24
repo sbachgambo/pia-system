@@ -17,7 +17,10 @@ abstract class AbstractReturnBuilder implements ReturnBuilderInterface
             $out[] = $this->row($i + 1, $row);
         }
 
-        return CsvWriter::write($this->headers(), $out);
+        // writeSafe, not write: these files carry exporter-supplied names and
+        // product text, and are opened in Excel by the CBN, NBS and NEPC.
+        // Signed numbers pass through untouched.
+        return CsvWriter::writeSafe($this->headers(), $out);
     }
 
     /** @return list<string> */

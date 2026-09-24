@@ -156,8 +156,12 @@ final class UserAdminRepository
             $params['status'] = $filters['status'];
         }
         if (!empty($filters['q'])) {
-            $clauses[] = '(full_name LIKE :q OR email LIKE :q)';
-            $params['q'] = '%' . $filters['q'] . '%';
+            // One placeholder per column: emulated prepares are off, so MySQL
+            // rejects a named parameter that appears more than once.
+            $clauses[] = '(full_name LIKE :q_name OR email LIKE :q_email)';
+            $like = '%' . $filters['q'] . '%';
+            $params['q_name'] = $like;
+            $params['q_email'] = $like;
         }
 
         return [$clauses === [] ? '' : 'WHERE ' . implode(' AND ', $clauses), $params];

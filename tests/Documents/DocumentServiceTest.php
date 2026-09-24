@@ -166,4 +166,36 @@ final class DocumentServiceTest extends DatabaseTestCase
         $this->expectException(NotFoundException::class);
         $this->service()->download('00000000-0000-0000-0000-000000000000');
     }
+
+    /**
+     * A certificate altered on disk after issue — by a doctored backup restore,
+     * or anyone with file access — must not be handed out as authentic. The
+     * signature used to be checked only by the archive export, so tampered
+     * PDFs downloaded with HTTP 200 and no warning at all.
+     */
+    public function testDownloadRefusesAPdfThatNoLongerMatchesItsSignature(): void
+    {
+        $insp = $this->finalizedInspection();
+        $svc = $this->service();
+        $doc = $svc->generateForInspection($insp['uuid'], null, 'CCI');
+
+        self::assertStringStartsWith('%PDF', $svc->download($doc['uuid'])['bytes']);
+
+        $path = (string) $this->pdo
+            ->query("SELECT file_path FROM documents WHERE uuid = '{$doc['uuid']}'")
+            ->fetchColumn();
+        // file_path is stored as "documents/<uuid>.pdf", while the file itself
+        // lives directly in the storage base dir — hence basename() here.
+        $onDisk = sys_get_temp_dir() . '/pia_test_' . getmypid() . '/documents/' . basename($path);
+        self::assertFileExists($onDisk);
+        file_put_contents($onDisk, file_get_contents($onDisk) . "\n% tampered after issue\n");
+
+        try {
+            $svc->download($doc['uuid']);
+            self::fail('expected the tampered document to be refused');
+        } catch (ApiException $e) {
+            self::assertSame(409, $e->getStatusCode());
+            self::assertSame('document_integrity_failed', $e->getErrorCode());
+        }
+    }
 }

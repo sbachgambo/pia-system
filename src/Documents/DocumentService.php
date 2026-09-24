@@ -112,6 +112,20 @@ final class DocumentService
         $bytes = $this->storage->read((string) $row['file_path'])
             ?? throw new ApiException(410, 'file_missing', 'The document file is no longer available.');
 
+        // A certificate is evidence, so it is checked against the hash and HMAC
+        // recorded when it was issued (D7) before anyone is handed the bytes.
+        // Without this the signature is only ever examined by the archive
+        // export, and a PDF altered on disk — or restored from a doctored
+        // backup — would be served as though it were authentic.
+        if (!$this->signer->verify($bytes, (string) $row['content_hash'], (string) $row['hmac_signature'])) {
+            throw new ApiException(
+                409,
+                'document_integrity_failed',
+                'This document no longer matches the signature recorded when it was issued, so it cannot be served. Regenerate it, and report the discrepancy.',
+                ['document_number' => (string) $row['document_number']],
+            );
+        }
+
         return [
             'bytes'    => $bytes,
             'filename' => $row['document_number'] . '.pdf',

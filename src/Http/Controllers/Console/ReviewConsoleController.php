@@ -229,6 +229,11 @@ final class ReviewConsoleController extends AbstractConsoleController
         } catch (NotFoundException) {
             $this->flash($request, 'error', 'Document not found.');
             return $this->redirect($response, '/console/inspections/' . (string) $args['uuid']);
+        } catch (ApiException $e) {
+            // Integrity failure or a missing file: say so on the page rather
+            // than handing the reviewer a raw JSON error.
+            $this->flash($request, 'error', $e->getMessage());
+            return $this->redirect($response, '/console/inspections/' . (string) $args['uuid']);
         }
 
         $response->getBody()->write($file['bytes']);

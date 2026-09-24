@@ -141,8 +141,13 @@ final class ClientRepository
             $params['type'] = $filters['type'];
         }
         if (!empty($filters['q'])) {
-            $clauses[] = '(name LIKE :q OR contact_name LIKE :q OR contact_email LIKE :q)';
-            $params['q'] = '%' . $filters['q'] . '%';
+            // One placeholder per column: emulated prepares are off, so MySQL
+            // rejects a named parameter that appears more than once.
+            $clauses[] = '(name LIKE :q_name OR contact_name LIKE :q_contact OR contact_email LIKE :q_email)';
+            $like = '%' . $filters['q'] . '%';
+            $params['q_name'] = $like;
+            $params['q_contact'] = $like;
+            $params['q_email'] = $like;
         }
 
         return [$clauses === [] ? '' : 'WHERE ' . implode(' AND ', $clauses), $params];
