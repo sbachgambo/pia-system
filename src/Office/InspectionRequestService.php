@@ -104,7 +104,9 @@ final class InspectionRequestService
             );
         }
 
-        return Representation::inspectionRequest($this->requests->updateStatus((int) $row['id'], $to));
+        // Pass the status we just validated, so a request another user has
+        // already moved on is refused rather than overwritten.
+        return Representation::inspectionRequest($this->requests->updateStatus((int) $row['id'], $to, $from));
     }
 
     /** @return array<string,mixed> */

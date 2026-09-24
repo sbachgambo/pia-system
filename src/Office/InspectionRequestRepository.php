@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Office;
 
+use App\Support\ApiException;
 use DateTimeImmutable;
 use PDO;
 
@@ -66,11 +67,38 @@ final class InspectionRequestRepository
     }
 
     /** @return array<string,mixed> */
-    public function updateStatus(int $id, string $status): array
+    /**
+     * @param string|null $expected the status the caller checked before
+     *        deciding this move was legal. Supplying it makes the write
+     *        conditional, so a request that someone else has already moved on
+     *        is refused instead of being quietly overwritten.
+     * @return array<string,mixed>
+     */
+    public function updateStatus(int $id, string $status, ?string $expected = null): array
     {
-        $this->pdo->prepare(
-            'UPDATE inspection_requests SET status = :status, updated_at = UTC_TIMESTAMP() WHERE id = :id'
-        )->execute(['id' => $id, 'status' => $status]);
+        $sql = 'UPDATE inspection_requests SET status = :status, updated_at = UTC_TIMESTAMP() WHERE id = :id';
+        $params = ['id' => $id, 'status' => $status];
+
+        if ($expected !== null) {
+            $sql .= ' AND status = :expected';
+            $params['expected'] = $expected;
+        }
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+
+        if ($expected !== null && $stmt->rowCount() === 0) {
+            $current = $this->findById($id);
+
+            throw new ApiException(
+                409,
+                'concurrent_update',
+                $current === null
+                    ? 'That inspection request no longer exists.'
+                    : "This request is already `{$current['status']}` — someone else changed it while this page was open. Reload and try again.",
+                ['status' => $current['status'] ?? null, 'attempted' => $status],
+            );
+        }
 
         return $this->findById($id) ?? throw new \RuntimeException('inspection request not found after status change');
     }

@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Console;
 
 use App\Audit\AuditLog;
+use App\Auth\PasswordResetService;
 use App\Http\Middleware\ConsoleAuthMiddleware;
+use App\Mail\MailException;
 use App\Http\Support\ClientContext;
 use App\Http\Support\Input;
 use App\Http\Support\Pagination;
@@ -32,6 +34,7 @@ final class UserConsoleController extends AbstractConsoleController
         private readonly UserAdminRepository $userRepo,
         private readonly AuditLog $audit,
         private readonly TwoFactorService $twoFactor,
+        private readonly PasswordResetService $passwordResets,
     ) {
         parent::__construct($view);
     }
@@ -74,7 +77,12 @@ final class UserConsoleController extends AbstractConsoleController
         }
 
         $this->record($request, 'user.create', $user['uuid'], null, $this->snapshot($user));
-        $this->flash($request, 'success', "User “{$user['full_name']}” created.");
+
+        $message = "User “{$user['full_name']}” created.";
+        if (($body['send_login_details'] ?? '') !== '') {
+            $message .= ' ' . $this->mailLoginDetails($request, (string) $user['uuid']);
+        }
+        $this->flash($request, 'success', $message);
 
         return $this->redirect($response, '/console/users/' . $user['uuid'] . '/edit');
     }
@@ -266,5 +274,50 @@ final class UserConsoleController extends AbstractConsoleController
         $field = $e->getDetails()['field'] ?? '_';
 
         return [(string) $field => $e->getMessage()];
+    }
+
+    /** Resend the welcome email from the user's own page. */
+    public function sendLoginDetails(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        $uuid = (string) $args['uuid'];
+
+        try {
+            $this->users->get($uuid);
+        } catch (NotFoundException) {
+            $this->flash($request, 'error', 'User not found.');
+            return $this->redirect($response, '/console/users');
+        }
+
+        $this->flash($request, 'success', $this->mailLoginDetails($request, $uuid));
+
+        return $this->redirect($response, '/console/users/' . $uuid . '/edit');
+    }
+
+    /**
+     * Mails the sign-in address and a link to choose a password, and returns
+     * the sentence to show the administrator. Never throws: a mail server that
+     * is down must not lose the account that was just created.
+     */
+    private function mailLoginDetails(ServerRequestInterface $request, string $uuid): string
+    {
+        $row = $this->userRepo->findByUuid($uuid);
+        if ($row === null) {
+            return 'The login details could not be sent — the account was not found.';
+        }
+
+        try {
+            $sent = $this->passwordResets->sendWelcome($row, ClientContext::ip($request));
+        } catch (MailException) {
+            return 'The login details could not be emailed (the mail server rejected it). '
+                . 'Ask them to use “Forgot password?”, or send the details again later.';
+        }
+
+        if (!$sent) {
+            return 'No login email was sent: outgoing email is switched off for this system.';
+        }
+
+        $this->record($request, 'user.send_login_details', $uuid, null, ['email' => $row['email']]);
+
+        return "Login details emailed to {$row['email']}.";
     }
 }

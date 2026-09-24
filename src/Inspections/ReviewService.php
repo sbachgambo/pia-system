@@ -93,7 +93,7 @@ final class ReviewService
 
         try {
             $this->pdo->beginTransaction();
-            $updated = $this->inspections->applyAmend($id, $locationType, $locationDetail);
+            $updated = $this->inspections->applyAmend($id, $locationType, $locationDetail, self::REVIEWABLE);
             if ($newFindings !== null) {
                 $this->findings->replaceForInspection($id, $newFindings);
             }
@@ -118,7 +118,7 @@ final class ReviewService
         $id = (int) $row['id'];
 
         $before = $this->snapshot($row);
-        $updated = $this->inspections->applyFinalize($id, $actorId, new DateTimeImmutable('now', new DateTimeZone('UTC')));
+        $updated = $this->inspections->applyFinalize($id, $actorId, new DateTimeImmutable('now', new DateTimeZone('UTC')), self::REVIEWABLE);
 
         $this->audit->record($actorId, 'inspection.finalize', 'inspection', $id, $before, $this->snapshot($updated), $ip);
 
@@ -135,7 +135,7 @@ final class ReviewService
         $reason = $in->requiredString('reason', 1000);
 
         $before = $this->snapshot($row);
-        $updated = $this->inspections->applyReject($id);
+        $updated = $this->inspections->applyReject($id, self::REVIEWABLE);
 
         $this->audit->record(
             $actorId,

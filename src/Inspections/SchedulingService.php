@@ -70,9 +70,10 @@ final class SchedulingService
             $locationDetail,
         );
 
-        // Move the request forward if it was still pending.
+        // Move the request forward if it was still pending. Conditional on
+        // that same status, so two officers scheduling at once cannot both win.
         if ($request['status'] === 'pending') {
-            $this->requests->updateStatus((int) $request['id'], 'scheduled');
+            $this->requests->updateStatus((int) $request['id'], 'scheduled', 'pending');
         }
 
         return Representation::inspection($inspection);

@@ -30,6 +30,7 @@ use PDO;
 final class PasswordResetService
 {
     public const TTL_MINUTES = 60;
+    public const WELCOME_TTL_HOURS = 168;   // 7 days — a new starter may not read email today
     private const MAX_REQUESTS_PER_HOUR = 3;
 
     public function __construct(
@@ -92,6 +93,63 @@ final class PasswordResetService
             // Already logged by the mailer. Swallowed on purpose: surfacing a
             // mail failure here would tell the requester the address exists.
         }
+    }
+
+    /**
+     * Welcome a newly created account: mail the person the address they sign
+     * in with, where to sign in, and a link to choose their own password.
+     *
+     * This exists so nobody has to read a password down the phone or send one
+     * over WhatsApp — the administrator who creates the account never learns
+     * it. Unlike request(), it is triggered by an administrator on an account
+     * they just created, so it says plainly whether it sent.
+     *
+     * The link lives WELCOME_TTL_HOURS rather than an hour: a new colleague
+     * may not read their email until the next working day. It can be sent
+     * again from the user's page if it lapses.
+     *
+     * @param array<string,mixed> $user a users row (id, email, full_name, role)
+     * @return bool false when outgoing email is switched off
+     */
+    public function sendWelcome(array $user, ?string $ip): bool
+    {
+        if (!$this->isAvailable()) {
+            return false;
+        }
+
+        $raw = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $this->pdo->prepare(
+            'INSERT INTO password_resets (user_id, token_hash, expires_at, ip_address, created_at, updated_at)
+             VALUES (:u, :h, UTC_TIMESTAMP() + INTERVAL ' . self::WELCOME_TTL_HOURS . ' HOUR, :ip, UTC_TIMESTAMP(), UTC_TIMESTAMP())'
+        )->execute(['u' => (int) $user['id'], 'h' => hash('sha256', $raw), 'ip' => $ip]);
+
+        $base = rtrim($this->baseUrl, '/');
+        $link = $base . '/console/reset-password?token=' . $raw;
+
+        // Inspectors work in the field app; everyone else in the office console.
+        $where = $user['role'] === 'inspector'
+            ? "the inspector app at {$base}/app/"
+            : "the office console at {$base}/console/login";
+
+        $this->mailer->send(
+            (string) $user['email'],
+            (string) $user['full_name'],
+            "Your {$this->appName} account",
+            "Hello {$user['full_name']},\n\n"
+            . "An account has been created for you on {$this->appName}.\n\n"
+            . "Sign in at " . $where . "\n"
+            . "Your username is your email address: {$user['email']}\n\n"
+            . "Choose your password here first:\n\n"
+            . "{$link}\n\n"
+            . 'This link works once and expires in ' . (int) (self::WELCOME_TTL_HOURS / 24) . " days. "
+            . "If it expires, ask an administrator to send it again.\n\n"
+            . ($user['role'] === 'inspector'
+                ? "Once you are signed in, set a PIN on your device so you can unlock the app offline.\n"
+                : '')
+            . "\nIf you were not expecting this, tell your administrator.\n",
+        );
+
+        return true;
     }
 
     /** @return array{id:int,email:string,full_name:string}|null */

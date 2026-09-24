@@ -378,6 +378,7 @@ final class AppFactory
                     $admin->get('/users/{uuid}/edit', UserConsoleController::class . ':edit');
                     $admin->post('/users/{uuid}', UserConsoleController::class . ':update');
                     $admin->post('/users/{uuid}/reset-password', UserConsoleController::class . ':resetPassword');
+                    $admin->post('/users/{uuid}/send-login-details', UserConsoleController::class . ':sendLoginDetails');
                     $admin->post('/users/{uuid}/toggle-status', UserConsoleController::class . ':toggleStatus');
                     $admin->post('/users/{uuid}/sign-out', UserConsoleController::class . ':signOutEverywhere');
                     $admin->post('/users/{uuid}/two-factor/reset', UserConsoleController::class . ':resetTwoFactor');

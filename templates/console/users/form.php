@@ -67,9 +67,16 @@ $roles = ['inspector' => 'Inspector', 'office_reviewer' => 'Office reviewer', 'a
   <?php endif; ?>
 
   <?php if (!$isEdit): ?>
-    <label>Initial password <small>at least 10 characters — share it with the user out of band</small>
+    <label>Initial password <small>at least 10 characters</small>
       <input type="text" name="password" required minlength="10" autocomplete="new-password">
       <?= $err('password') ?>
+    </label>
+
+    <label class="checkline">
+      <input type="checkbox" name="send_login_details" value="1"
+             <?= !isset($old['send_login_details']) || $old['send_login_details'] ? 'checked' : '' ?>>
+      Email this person their sign-in details
+      <small>(they get the web address and a link to choose their own password, so the one above is never shared)</small>
     </label>
   <?php endif; ?>
 
@@ -96,6 +103,15 @@ $roles = ['inspector' => 'Inspector', 'office_reviewer' => 'Office reviewer', 'a
       <input type="hidden" name="_csrf" value="<?= $this->e($csrf_token) ?>">
       <button type="submit" class="btn-outline">Sign out everywhere</button>
     </form>
+  </section>
+
+  <section class="actions">
+    <h2>Login details <small>emails the web address and a one-time link to choose a password</small></h2>
+    <form method="post" action="/console/users/<?= $this->e($user['uuid']) ?>/send-login-details">
+      <input type="hidden" name="_csrf" value="<?= $this->e($csrf_token) ?>">
+      <button type="submit" class="btn-outline">Send login details</button>
+    </form>
+    <p class="hint">Use this for a new colleague, or when their link has expired. It does not change their current password.</p>
   </section>
 
   <section class="actions">

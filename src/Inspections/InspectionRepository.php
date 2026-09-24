@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Inspections;
 
+use App\Support\ApiException;
 use DateTimeImmutable;
 use PDO;
 
@@ -163,44 +164,105 @@ final class InspectionRepository
      *
      * @return array<string,mixed>
      */
-    public function applyAmend(int $id, ?string $locationType, ?string $locationDetail): array
+    public function applyAmend(int $id, ?string $locationType, ?string $locationDetail, array $expected): array
     {
-        $this->pdo->prepare(
+        [$in, $params] = $this->statusCondition($expected);
+
+        $stmt = $this->pdo->prepare(
             "UPDATE inspections
                 SET status = 'amended',
                     location_type = COALESCE(:ltype, location_type),
                     location_detail = COALESCE(:ldetail, location_detail),
                     updated_at = UTC_TIMESTAMP()
-              WHERE id = :id"
-        )->execute([
+              WHERE id = :id AND status IN ({$in})"
+        );
+        $stmt->execute($params + [
             'ltype'   => $locationType,
             'ldetail' => $locationDetail,
             'id'      => $id,
         ]);
+        $this->assertChanged($stmt->rowCount(), $id, 'amended');
 
         return $this->one('i.id = :v', ['v' => $id]) ?? throw new \RuntimeException('inspection not found after amend');
     }
 
-    /** @return array<string,mixed> */
-    public function applyFinalize(int $id, int $finalizedByUserId, DateTimeImmutable $when): array
+    /**
+     * @param list<string> $expected statuses this change may be applied to
+     * @return array<string,mixed>
+     */
+    public function applyFinalize(int $id, int $finalizedByUserId, DateTimeImmutable $when, array $expected): array
     {
-        $this->pdo->prepare(
+        [$in, $params] = $this->statusCondition($expected);
+
+        $stmt = $this->pdo->prepare(
             "UPDATE inspections
                 SET status = 'finalized', finalized_at = :when, finalized_by = :by, updated_at = UTC_TIMESTAMP()
-              WHERE id = :id"
-        )->execute(['when' => $when->format('Y-m-d H:i:s'), 'by' => $finalizedByUserId, 'id' => $id]);
+              WHERE id = :id AND status IN ({$in})"
+        );
+        $stmt->execute($params + ['when' => $when->format('Y-m-d H:i:s'), 'by' => $finalizedByUserId, 'id' => $id]);
+        $this->assertChanged($stmt->rowCount(), $id, 'finalized');
 
         return $this->one('i.id = :v', ['v' => $id]) ?? throw new \RuntimeException('inspection not found after finalize');
     }
 
-    /** @return array<string,mixed> */
-    public function applyReject(int $id): array
+    /**
+     * @param list<string> $expected statuses this change may be applied to
+     * @return array<string,mixed>
+     */
+    public function applyReject(int $id, array $expected): array
     {
-        $this->pdo->prepare(
-            "UPDATE inspections SET status = 'rejected', updated_at = UTC_TIMESTAMP() WHERE id = :id"
-        )->execute(['id' => $id]);
+        [$in, $params] = $this->statusCondition($expected);
+
+        $stmt = $this->pdo->prepare(
+            "UPDATE inspections SET status = 'rejected', updated_at = UTC_TIMESTAMP()
+              WHERE id = :id AND status IN ({$in})"
+        );
+        $stmt->execute($params + ['id' => $id]);
+        $this->assertChanged($stmt->rowCount(), $id, 'rejected');
 
         return $this->one('i.id = :v', ['v' => $id]) ?? throw new \RuntimeException('inspection not found after reject');
+    }
+
+    /**
+     * Builds `IN (:st0, :st1, …)` with one placeholder per value — emulated
+     * prepares are off, so a name may not be reused within a statement.
+     *
+     * @param list<string> $statuses
+     * @return array{0:string, 1:array<string,string>}
+     */
+    private function statusCondition(array $statuses): array
+    {
+        $names = [];
+        $params = [];
+        foreach (array_values($statuses) as $i => $status) {
+            $names[] = ":st{$i}";
+            $params["st{$i}"] = $status;
+        }
+
+        return [implode(', ', $names), $params];
+    }
+
+    /**
+     * The caller checked the status before calling, but another request may
+     * have moved the inspection on in between. Matching zero rows means that
+     * happened, so the change is refused rather than silently lost — without
+     * this, two submissions could both pass the guard and the second would
+     * overwrite the first.
+     */
+    private function assertChanged(int $rowCount, int $id, string $target): void
+    {
+        if ($rowCount === 0) {
+            $current = $this->one('i.id = :v', ['v' => $id]);
+
+            throw new ApiException(
+                409,
+                'concurrent_update',
+                $current === null
+                    ? 'That inspection no longer exists.'
+                    : "This inspection is already `{$current['status']}` — someone else changed it while this page was open. Reload and try again.",
+                ['status' => $current['status'] ?? null, 'attempted' => $target],
+            );
+        }
     }
 
     /**
